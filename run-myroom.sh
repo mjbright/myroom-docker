@@ -1,10 +1,11 @@
 #!/bin/bash
 
 echo "HostIP: ${HostIP}"
-echo "XAUTH: ${XAUTH}"
 echo "PCookie: ${PULSE_COOKIE}"
 
 touch /home/user/.Xauthority
+XAUTH=":0  ${XAUTH}"
+echo "XAUTH: ${XAUTH}"
 xauth add $XAUTH
 
 echo $PCookie | base64 -d > $PULSE_COOKIE
