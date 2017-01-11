@@ -41,7 +41,7 @@ enableSELinux() {
     getenforce ; sudo setenforce 1; getenforce
 }
 
-disableSELinux {
+disableSELinux() {
     echo; echo "-- Temporarily disabling selinux ----"
     getenforce ; sudo setenforce 0; getenforce
 }
