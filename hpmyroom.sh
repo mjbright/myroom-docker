@@ -48,6 +48,11 @@ disableSELinux() {
 
 ############################################################
 # Args:
+
+if [ "${0#*sky}" != "$0" ]; then
+    Command="/usr/bin/sky"
+fi
+
 while [ ! -z "$1" ];do
     case $1 in
         -perm*) SELINUX=1;;
