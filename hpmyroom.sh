@@ -1,63 +1,107 @@
 #!/bin/bash
 
-Container=mjbright/myroom
-Command=""
+# NOTE:
+#   From https://github.com/jessfraz/dockerfiles/blob/master/spotify/Dockerfile
+#
+#   See also: https://github.com/jessfraz/dockerfiles/issues/85
+#   for sound issues
+#
+# Run spotify in a container
+#
+# docker run -d \
+#    -v /etc/localtime:/etc/localtime:ro \
+#    -v /tmp/.X11-unix:/tmp/.X11-unix \
+#    -e DISPLAY=unix$DISPLAY \
+#    --device /dev/snd:/dev/snd \
+#    -v $HOME/.spotify/config:/home/spotify/.config/spotify \
+#    -v $HOME/.spotify/cache:/home/spotify/spotify \
+#    --name spotify \
+#    jess/spotify
 
 #Container=$1
 #Command=$2
+Container=mjbright/myroom
+Command=""
+
+############################################################
+# Config:
 
 SELINUX=0
-[ "$1" = "-perm" ] && {
-    SELINUX=1
+
+############################################################
+# Functions:
+
+die() {
+    echo "$0: die - $*" >&2
+    exit 1
 }
 
-#CMD="/home/mjb/src/git/nakato.hpe-myroom-docker/start.sh $CONTAINER"
-#echo $CMD
-#$CMD
+enableSELinux() {
+    echo; echo "-- Reenabling selinux ----"
+    getenforce ; sudo setenforce 1; getenforce
+}
 
-HostIP=$(ip a l docker0 | grep 'inet ' | awk '{print $2}' | awk -F'/' '{print $1}')
-T_XAUTH=$(xauth list)
-XAUTH="$(echo $T_XAUTH | awk '{print $2 "  " $3}')"
-PCookie=$(cat ~/.config/pulse/cookie | base64 -w0)
-
-[ $SELINUX -eq 0 ] && {
+disableSELinux {
     echo; echo "-- Temporarily disabling selinux ----"
     getenforce ; sudo setenforce 0; getenforce
 }
 
-# Based on http://stackoverflow.com/questions/28985714/run-apps-using-audio-in-a-docker-container
+############################################################
+# Args:
+while [ ! -z "$1" ];do
+    case $1 in
+        -perm*) SELINUX=1;;
+        -se*)   SELINUX=1;;
+
+        *) die "Unknown option <$1>";;
+    esac
+    shift
+done
+
+############################################################
+# Main:
+
+HostIP=$(ip a l docker0 | grep 'inet ' | awk '{print $2}' | awk -F'/' '{print $1}')
+## T_XAUTH=$(xauth list)
+## XAUTH="$(echo $T_XAUTH | awk '{print $2 "  " $3}')"
+PCookie=$(cat ~/.config/pulse/cookie | base64 -w0)
+
+[ $SELINUX -eq 0 ] && disableSELinux
+    
 uid=$(id -u)
 dockerUsername="root"
 
-PULSEAUDIO_OPTS=""
-#/home/mjb/.config/pulse
-#/home/mjb/.config/gconf/system/pulseaudio
-
 PULSEAUDIO_OPTS="
-  -v /dev/shm:/dev/shm \
-  -v /etc/machine-id:/etc/machine-id \
-  -v /run/user/$uid/pulse:/run/user/$uid/pulse \
-  -v /var/lib/dbus:/var/lib/dbus \
   -v $HOME/.config/pulse:/home/$dockerUsername/.config/pulse
+  --device /dev/snd
+  --group-add $(getent group audio | cut -d: -f3)
+   -e PULSE_SERVER=tcp:localhost:4713
+   -e PULSE_COOKIE_DATA=`pax11publish -d | grep --color=never -Po '(?<=^Cookie: ).*'` 
+"
+
+# mount the X11 socket:
+# pass the display:
+X11_OPTS="
+    -v /tmp/.X11-unix:/tmp/.X11-unix -e DISPLAY=unix$DISPLAY
+"
+
+HPMYROOM_OPTS="
   -v $HOME/z/bin/Deployed/hpmyroom.sh.conf:/home/user/.config/Hewlett-Packard/MyRoom.conf
 "
-## docker run -ti --rm \
-##     -v /dev/shm:/dev/shm \
-##     -v /etc/machine-id:/etc/machine-id \
-##     -v /run/user/$uid/pulse:/run/user/$uid/pulse \
-##     -v /var/lib/dbus:/var/lib/dbus \
-##     -v ~/.pulse:/home/$dockerUsername/.pulse \
-##     myContainer sh -c "echo run something"
+
+# See lidel here:
+#    https://github.com/jessfraz/dockerfiles/issues/85
+# Set up PulseAudio Cookie if missing
+if [ x"$(pax11publish -d)" = x ]; then
+    echo "start-pulseaudio-x11 ..."
+    start-pulseaudio-x11
+fi
 
 
-#### #CMD="docker run -ti --rm -e DISPLAY=:0 -e HostIP=${HostIP} -e XAUTH="${XAUTH}" -e PCookie=${PCookie} -v /tmp/.X11-unix:/tmp/.X11-unix $Container $Command"
-#### CMD="docker run --rm -e DISPLAY=:0 -e HostIP=${HostIP} -e XAUTH="${XAUTH}" -e PCookie=${PCookie} -v /tmp/.X11-unix:/tmp/.X11-unix $Container $Command"
-#### echo $CMD
-#### $CMD &
+set -x
+    docker run --rm $PULSEAUDIO_OPTS $X11_OPTS $HPMYROOM_OPTS -e HostIP=${HostIP} -e "PCookie=${PCookie}" $Container $Command
+set +x
 
-docker run --rm $PULSEAUDIO_OPTS -e DISPLAY=:0 -e HostIP=${HostIP} -e XAUTH="${XAUTH}" -e PCookie=${PCookie} -v /tmp/.X11-unix:/tmp/.X11-unix $Container $Command
+[ $SELINUX -eq 0 ] && enableSELinux
 
-[ $SELINUX -eq 0 ] && {
-    echo; echo "-- Reenabling selinux ----"
-    getenforce ; sudo setenforce 1; getenforce
-}
+
